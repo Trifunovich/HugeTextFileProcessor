@@ -1,0 +1,14 @@
+J:\sources\HugeTextFileProcessor\TextFileGenerator\bin\Debug\net9.0\TextFileGenerator.exe
+J:\sources\HugeTextFileProcessor\TextFileGenerator\bin\Debug\net9.0\TextFileGenerator.deps.json
+J:\sources\HugeTextFileProcessor\TextFileGenerator\bin\Debug\net9.0\TextFileGenerator.runtimeconfig.json
+J:\sources\HugeTextFileProcessor\TextFileGenerator\bin\Debug\net9.0\TextFileGenerator.dll
+J:\sources\HugeTextFileProcessor\TextFileGenerator\bin\Debug\net9.0\TextFileGenerator.pdb
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.GeneratedMSBuildEditorConfig.editorconfig
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.AssemblyInfoInputs.cache
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.AssemblyInfo.cs
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.csproj.CoreCompileInputs.cache
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.dll
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\refint\TextFileGenerator.dll
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.pdb
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.genruntimeconfig.cache
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\ref\TextFileGenerator.dll
