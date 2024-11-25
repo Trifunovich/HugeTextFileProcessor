@@ -12,3 +12,4 @@ J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\refint\TextF
 J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.pdb
 J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.genruntimeconfig.cache
 J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\ref\TextFileGenerator.dll
+J:\sources\HugeTextFileProcessor\TextFileGenerator\obj\Debug\net9.0\TextFileGenerator.sourcelink.json
