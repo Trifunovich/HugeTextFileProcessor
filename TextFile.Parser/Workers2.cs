@@ -1,5 +1,7 @@
 ﻿using BenchmarkDotNet.Attributes;
 namespace TextFile.Parser;
+
+using CommandLine;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -7,22 +9,78 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-public class Workers2 : IParser
+
+public abstract class ParserBase : IParser
 {
-    private const int ChunkSize = 100000; // Adjust this based on your memory constraints
-    
-    
-    public async Task CreateExternalChunks(string inputFile)
+    protected const int ChunkSize = 10000000; // Adjust this based on your memory constraints
+    protected readonly ConcurrentDictionary<int, long> _procCount = new();
+    protected string CurrentTs;
+    protected string ChunkFolder;
+    protected string InputFile;
+    protected string OutputFile;
+
+    protected ParserBase()
     {
-        var linesQueue = new BlockingCollection<string>(boundedCapacity: 10000);
-
-        var readingTask = Task.Run(() => ReadLinesAsync(inputFile, linesQueue));
-        var processingTask = Task.Run(() => ProcessLinesAsync(linesQueue));
-
-        await Task.WhenAll(readingTask, processingTask);
+        InputFile = "D:\\largefiletext\\input_file_2024112549_1.txt";
+        var outputFolder = Path.GetDirectoryName(InputFile);
+        CurrentTs = DateTime.Now.ToString("yyyyMMddHHmmss");
+        OutputFile = $"{outputFolder}\\output_{GetType().Name}_{CurrentTs}.txt";
+        ChunkFolder = $"{outputFolder}\\chunks_{CurrentTs}";
     }
 
-    public Task MergeSortedChunks(string outputFile)
+
+    public void SetPaths(string inputFile, string outputFile, string chunkFolder)
+    {
+        InputFile = inputFile;
+        OutputFile = outputFile;
+        ChunkFolder = chunkFolder;
+    }
+
+
+    public virtual Task CreateExternalChunks()
+    {
+        if (Directory.Exists(ChunkFolder))
+        {
+            var directoryInfo = new DirectoryInfo(ChunkFolder);
+            foreach (var file in directoryInfo.GetFiles())
+            {
+                file.Delete();
+            }
+            foreach (var dir in directoryInfo.GetDirectories())
+            {
+                dir.Delete(true);
+            }
+        }
+        else
+        {
+            Directory.CreateDirectory(ChunkFolder);
+        }
+
+        return Task.CompletedTask;
+    }
+
+
+    public abstract Task MergeSortedChunks();
+}
+
+
+public class Workers2 : ParserBase
+{
+
+    public override async Task CreateExternalChunks()
+    {
+        await base.CreateExternalChunks();
+        var linesQueue = new BlockingCollection<string>(boundedCapacity: 100000);
+        var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
+        var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
+        {
+            _procCount[x] = 0;
+            return ProcessLinesAsync(x, linesQueue, ChunkFolder);
+        })).ToArray();
+        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
+    }
+
+    public override Task MergeSortedChunks()
     {
         var sortedFiles = Directory.GetFiles(Directory.GetCurrentDirectory(), "chunk_*.txt");
         var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
@@ -35,7 +93,7 @@ public class Workers2 : IParser
             if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = reader });
         }
 
-        using (var writer = new StreamWriter(outputFile))
+        using (var writer = new StreamWriter(OutputFile))
         {
             while (queue.Count > 0)
             {
@@ -74,7 +132,7 @@ public class Workers2 : IParser
 
         using (var reader = new StreamReader(inputFile))
         {
-            char[] buffer = new char[ChunkSize];
+            var buffer = new char[ChunkSize];
             int bytesRead;
             while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
@@ -88,57 +146,55 @@ public class Workers2 : IParser
         linesQueue.CompleteAdding();
     }
 
-    static async Task ProcessLinesAsync(BlockingCollection<string> linesQueue)
+    async Task ProcessLinesAsync(int ind, BlockingCollection<string> linesQueue, string chunkFolder)
     {
         var records = new List<Record>();
-        int chunkIndex = 0;
-
+        var chunkIndex = 0;
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
-            var parts = line.Split(new[] { ". " }, 2, StringSplitOptions.None);
-            if (parts.Length == 2 && int.TryParse(parts[0], out int number))
+            _procCount[ind]++;
+            var parts = line.Split([". "], 2, StringSplitOptions.None);
+            if (parts.Length == 2 && int.TryParse(parts[0], out var number))
             {
                 records.Add(new Record { Number = number, Text = parts[1] });
             }
 
-            if (records.Count >= ChunkSize)
-            {
-                await WriteChunkToFileAsync(records, chunkIndex++);
-                records.Clear();
-            }
+            if (records.Count < ChunkSize) continue;
+            await WriteChunkToFileAsync(records, chunkIndex++, ind, chunkFolder);
+            records.Clear();
         }
 
         if (records.Count > 0)
         {
-            await WriteChunkToFileAsync(records, chunkIndex);
+            await WriteChunkToFileAsync(records, chunkIndex, ind, chunkFolder);
         }
+
+        Console.WriteLine($"Processor {ind} has count {_procCount[ind]}");
     }
 
-    static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex)
+    private static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex, int ind, string chunkFolder)
     {
         records.Sort((x, y) =>
         {
-            int textComparison = string.Compare(x.Text, y.Text, StringComparison.Ordinal);
+            var textComparison = string.Compare(x.Text, y.Text, StringComparison.Ordinal);
             return textComparison != 0 ? textComparison : x.Number.CompareTo(y.Number);
         });
 
-        string chunkFileName = $"chunk_{chunkIndex}.txt";
-        using (var writer = new StreamWriter(chunkFileName))
+        var chunkFileName = Path.Combine(chunkFolder, $"chunk_{chunkIndex}_{ind}.txt");
+        await using var writer = new StreamWriter(chunkFileName);
+        foreach (var record in records)
         {
-            foreach (var record in records)
-            {
-                await writer.WriteLineAsync($"{record.Number}. {record.Text}");
-            }
+            await writer.WriteLineAsync($"{record.Number}. {record.Text}");
         }
     }
 
-    class Record
+    private class Record
     {
         public int Number { get; set; }
         public string Text { get; set; }
     }
 
-    class QueueItem
+    private class QueueItem
     {
         public string Line { get; set; }
         public StreamReader Reader { get; set; }

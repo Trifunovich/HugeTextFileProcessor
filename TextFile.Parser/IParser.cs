@@ -5,8 +5,8 @@ namespace TextFile.Parser;
 public interface IParser
 {
     [Benchmark]
-    Task CreateExternalChunks(string inputFile);
+    Task CreateExternalChunks();
 
     [Benchmark]
-    Task MergeSortedChunks(string outputFile);
+    Task MergeSortedChunks();
 }

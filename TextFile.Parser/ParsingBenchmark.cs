@@ -9,19 +9,17 @@ public class ParsingBenchmark
     [Benchmark]
     public async Task BenchmarkParseAndSortFile()
     {
-        const string inputFile = "D:\\largefiletext\\input_file_2024112517_10.txt";
-        var outputFolder = Path.GetDirectoryName(inputFile);
         var parser = new Workers2();
-        var outputFile = $"{outputFolder}\\output_{parser.GetType().Name}_{DateTime.Now.ToString("yyyyMMddHHmmss")}.txt";
-
-        await Run(parser, inputFile, outputFile);
+        await Run(parser);
     }
 
-    public static async Task Run(IParser parser, string inputFile, string outputFile)
+    public static async Task Run(IParser parser)
     {
+        
+
         var startTime = DateTime.Now;
         Console.WriteLine($"[0.000] Starting to parse and create chunks");
-        await parser.CreateExternalChunks(inputFile);
+        await parser.CreateExternalChunks(inputFile, chunkFolder);
         var midTime = DateTime.Now;
         Console.WriteLine($"[{(midTime - startTime).TotalSeconds:F3}] Starting to merge output file");
         await parser.MergeSortedChunks(outputFile);
