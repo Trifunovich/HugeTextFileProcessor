@@ -1,32 +1,23 @@
 ﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
+using System.Collections.Concurrent;
+using System.Linq;
 
 namespace TextFile.Parser;
 
 internal class Program
 {
-
     private static async Task Main(string[] args)
     {
         if (args.Length < 1)
         {
-            Console.WriteLine("Usage: <program> <input_file> <chunk_size>");
+            Console.WriteLine("Usage: <program> <input_file>");
             return;
         }
 
         var inputFile = args[0];
-
-        var parsed = int.TryParse(args[1], out int parsedV);
-
-        if (!parsed)
-        {
-            Console.WriteLine("Invalid chunk size");
-            return;
-        }
-
-        var chunkSize = parsedV;
         var parser = new FileParser();
-        await parser.ParseAndSortFile(inputFile, chunkSize);
+        await parser.ParseAndSortFile(inputFile);
 
         BenchmarkRunner.Run<ParsingBenchmark>();
     }
@@ -34,18 +25,21 @@ internal class Program
 
 public class FileParser
 {
-    public async Task ParseAndSortFile(string inputFile, int chunkSize)
+    private const long MaxMemoryUsage = 8L * 1024 * 1024 * 1024; // 8GB
+    private const long MaxChunkSize = MaxMemoryUsage / 2; // 4GB to leave room for sorting
+
+    public async Task ParseAndSortFile(string inputFile)
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDirectory);
 
-        var sortedChunks = await SplitAndSortChunks(inputFile, tempDirectory, chunkSize);
+        var sortedChunks = await SplitAndSortChunks(inputFile, tempDirectory);
 
-        var timestamp = DateTime.Now.ToString("yyyymmddss");
+        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
         var inputFileWoExt = Path.GetFileNameWithoutExtension(inputFile);
         var extension = Path.GetExtension(inputFile);
         var outputFile = $"{inputFileWoExt}_output_{timestamp}{extension}";
-        
+
         Console.WriteLine($"Writing to {outputFile}...");
         await MergeSortedChunks(sortedChunks, outputFile);
         Console.WriteLine($"Finished, check {outputFile}");
@@ -53,45 +47,53 @@ public class FileParser
         Directory.Delete(tempDirectory, true);
     }
 
-    private async Task<List<string>> SplitAndSortChunks(string inputFile, string tempDirectory, int chunkSize)
+    private async Task<List<string>> SplitAndSortChunks(string inputFile, string tempDirectory)
     {
-        // Adjust based on memory constraints
-        var chunks = new List<string>();
-        var lines = new List<string>(chunkSize);
+        var chunks = new ConcurrentBag<string>();
+        var lines = new List<string>();
+        long currentChunkSize = 0;
+        int chunkIndex = 0;
 
-        using var reader = new StreamReader(inputFile);
-        long currentLines = 0;
+        var fileInfo = new FileInfo(inputFile);
+        long totalFileSize = fileInfo.Length;
+        long processedSize = 0;
+
+        using var reader = new StreamReader(File.OpenRead(inputFile), bufferSize: 1024 * 1024); // 1MB buffer
 
         while (await reader.ReadLineAsync() is { } line)
         {
             lines.Add(line);
-            currentLines++;
+            currentChunkSize += line.Length;
+            processedSize += line.Length;
 
-            if (lines.Count >= chunkSize)
+            if (currentChunkSize >= MaxChunkSize)
             {
-                var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunks.Count}.txt");
+                var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunkIndex++}.txt");
                 await WriteSortedChunk(chunkFile, lines);
                 chunks.Add(chunkFile);
                 lines.Clear();
+                currentChunkSize = 0;
             }
 
-            var progress = currentLines;
-            Console.Write($"\r{currentLines:d} lines parsed");
+            // Report progress
+            Console.Write($"\rProgress: {processedSize * 100.0 / totalFileSize:F3}%");
         }
 
-        if (lines.Count <= 0) return chunks;
+        if (lines.Count > 0)
         {
-            var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunks.Count}.txt");
+            var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunkIndex++}.txt");
             await WriteSortedChunk(chunkFile, lines);
             chunks.Add(chunkFile);
         }
 
-        return chunks;
+        Console.WriteLine("\nSplitting and sorting completed.");
+        return chunks.ToList();
     }
 
     private static async Task WriteSortedChunk(string chunkFile, List<string> lines)
     {
         var sortedLines = lines
+            .AsParallel()
             .OrderBy(line => line.Split(". ")[1])
             .ThenBy(line => int.Parse(line.Split(". ")[0]));
         await File.WriteAllLinesAsync(chunkFile, sortedLines);
@@ -99,8 +101,7 @@ public class FileParser
 
     private static async Task MergeSortedChunks(List<string> sortedChunks, string outputFile)
     {
-        var readers = 
-            sortedChunks.Select(chunk => new StreamReader(chunk)).ToList();
+        var readers = sortedChunks.Select(chunk => new StreamReader(File.OpenRead(chunk), bufferSize: 1024 * 1024)).ToList(); // 1MB buffer
         var queue = new SortedList<string, StreamReader>();
 
         foreach (var reader in readers)
@@ -111,7 +112,7 @@ public class FileParser
             }
         }
 
-        await using (var writer = new StreamWriter(outputFile))
+        await using (var writer = new StreamWriter(File.OpenWrite(outputFile), bufferSize: 1024 * 1024)) // 1MB buffer
         {
             while (queue.Any())
             {
@@ -141,6 +142,6 @@ public class ParsingBenchmark
     [Benchmark]
     public async Task BenchmarkParseAndSortFile()
     {
-        await _parser.ParseAndSortFile(@"D:\\largefiletext\\input_file_2024112549_1.txt", 10000); // Adjust with your actual file path, can be in a config or whatever
+        await _parser.ParseAndSortFile(@"D:\\largefiletext\\input_file_2024112549_1.txt"); // Adjust with your actual file path, can be in a config or whatever
     }
 }
