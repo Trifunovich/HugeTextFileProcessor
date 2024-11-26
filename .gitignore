@@ -1,1 +1,192 @@
+# .gitignore for Visual Studio projects
+
+# Visual Studio
+.vscode/
 .vs/
+**/.vs/
+.vscode/*
+.vs/*
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Auto-generated files
+GeneratedFiles/
+GeneratedFile/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+[xX]64/
+[xX]86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+[bB]uild/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Uncomment if using a global packages folder
+# NUGET_PACKAGES/
+
+# NuGet dependencies
+*.nupkg
+*.snupkg
+*.nuspec
+.project.assets.json
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# MSBuild binary log
+*.binlog
+
+# Uncomment if using Microsoft's provided credential service
+# .plugintransports/
+
+# Single-page application projects
+node_modules/
+bower_components/
+jspm_packages/
+
+# Coverlet/Code Coverage Reports
+coverage/
+*.coverage
+*.coveragexml
+*.coverage.cobertura.xml
+TestResults/
+
+# StyleCop
+StyleCopReport.xml
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Windows shortcuts
+*.lnk
+
+# dotCover
+*.dotCover
+# AxoCover
+.axoCover/*
+# ReSharper
+_.DotSettings.user
+# Rider
+.idea/
+.idea/*
+# CodeRush
+.cr/*
+# NCrunch
+.ncrunchsolution
+.ncrunchproject
+.ncrunchcrunchresults
+# Fody
+FodyWeavers.xml
+
+# JetBrains Rider
+.idea
+.idea/*
+
+# File storage folders
+App_Data/
+
+# IIS
+.iisstart.htm
+app_offline.htm
+
+# R project
+.Rproj.user
+
+# Python tools for Visual Studio (PTVS)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.whl
+env/
+venv/
+pip-wheel-metadata/
+
+# Microsoft Azure WebJobs
+_webjob/
+
+# Code IDEs
+*.tmproj
+*.tm_workspace
+*.tmbundle
+*.tmproj
+
+# Kubeflow Pipelines
+.pipeline/
+
+# Kubernetes
+.kompose/
+
+# C++/CLI
+*.cmd*
+*.def
+*.exp
+*.ilk
+*.lib
+*.log
+*.obj
+*.pdb
+
+# Rust
+*.rs.bk
+
+# Markdown
+__MACOSX/
+*.md
+
+# Folder for storing keys
+keys/
+
+# Windows local config files
+osxkeychain/
+
+# Application Insights
+ApplicationInsights/
+
+# LambdaSharp
+.lambdasharp/
+
+# AWS StepFunctions
+.aws-codedeploy/
+
+# Python
+_PYTHONPATH
+__pycache__/
+__pypackages__
+
+# Miscellaneous
+[CONTENT-TYPES].xml
+[RELS].rels
+_target
+*.eml
+*.utf8
+
+# Windows specific
+*.DS_Store
+*.appx/
+
+# macOS specific
+*.pbxproj
+*.xcodeproj
+
+# Universal
+*.cpl
