@@ -9,23 +9,12 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-public class Workers
+public class Workers : ParserBase
 {
-    private const int ChunkSize = 100000; // Adjust this based on your memory constraints
-    private static string InputFile = @"D:\\largefiletext\\input_file_2024112549_1.txt";
-    private static string OutputFile = @"D:\\largefiletext\\workers_output.txt";
 
-    [Benchmark]
-    public async Task StartBenchmark()
+    public override async Task CreateExternalChunks()
     {
-        await Start();
-    }
-
-
-
-    static async Task Start()
-    {
-
+        await base.CreateExternalChunks();
         var linesQueue = new BlockingCollection<string>(boundedCapacity: 10000);
 
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
@@ -148,5 +137,10 @@ public class Workers
     {
         public string Line { get; set; }
         public StreamReader Reader { get; set; }
+    }
+
+    public override Task MergeSortedChunks()
+    {
+        throw new NotImplementedException();
     }
 }

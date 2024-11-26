@@ -1,68 +1,11 @@
-﻿using BenchmarkDotNet.Attributes;
-namespace TextFile.Parser;
+﻿namespace TextFile.Parser;
 
-using CommandLine;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-
-
-public abstract class ParserBase : IParser
-{
-    protected const int ChunkSize = 10000000; // Adjust this based on your memory constraints
-    protected readonly ConcurrentDictionary<int, long> _procCount = new();
-    protected string CurrentTs;
-    protected string ChunkFolder;
-    protected string InputFile;
-    protected string OutputFile;
-
-    protected ParserBase()
-    {
-        InputFile = "D:\\largefiletext\\input_file_2024112549_1.txt";
-        var outputFolder = Path.GetDirectoryName(InputFile);
-        CurrentTs = DateTime.Now.ToString("yyyyMMddHHmmss");
-        OutputFile = $"{outputFolder}\\output_{GetType().Name}_{CurrentTs}.txt";
-        ChunkFolder = $"{outputFolder}\\chunks_{CurrentTs}";
-    }
-
-
-    public void SetPaths(string inputFile, string outputFile, string chunkFolder)
-    {
-        InputFile = inputFile;
-        OutputFile = outputFile;
-        ChunkFolder = chunkFolder;
-    }
-
-
-    public virtual Task CreateExternalChunks()
-    {
-        if (Directory.Exists(ChunkFolder))
-        {
-            var directoryInfo = new DirectoryInfo(ChunkFolder);
-            foreach (var file in directoryInfo.GetFiles())
-            {
-                file.Delete();
-            }
-            foreach (var dir in directoryInfo.GetDirectories())
-            {
-                dir.Delete(true);
-            }
-        }
-        else
-        {
-            Directory.CreateDirectory(ChunkFolder);
-        }
-
-        return Task.CompletedTask;
-    }
-
-
-    public abstract Task MergeSortedChunks();
-}
-
 
 public class Workers2 : ParserBase
 {
@@ -190,13 +133,13 @@ public class Workers2 : ParserBase
 
     private class Record
     {
-        public int Number { get; set; }
-        public string Text { get; set; }
+        public int Number { get; init; }
+        public string Text { get; init; }
     }
 
     private class QueueItem
     {
         public string Line { get; set; }
-        public StreamReader Reader { get; set; }
+        public StreamReader Reader { get; init; }
     }
 }

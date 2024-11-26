@@ -6,7 +6,7 @@ public class ParsingBenchmark
 {
     private readonly FileParser _parser = new FileParser();
 
-    [Benchmark]
+    [Benchmark(OperationsPerInvoke = 2)]
     public async Task BenchmarkParseAndSortFile()
     {
         var parser = new Workers2();
@@ -15,14 +15,12 @@ public class ParsingBenchmark
 
     public static async Task Run(IParser parser)
     {
-        
-
         var startTime = DateTime.Now;
         Console.WriteLine($"[0.000] Starting to parse and create chunks");
-        await parser.CreateExternalChunks(inputFile, chunkFolder);
+        await parser.CreateExternalChunks();
         var midTime = DateTime.Now;
         Console.WriteLine($"[{(midTime - startTime).TotalSeconds:F3}] Starting to merge output file");
-        await parser.MergeSortedChunks(outputFile);
+        await parser.MergeSortedChunks();
         var endTime = DateTime.Now;
         Console.WriteLine($"[{(endTime - startTime).TotalSeconds:F3}] Finished processing");
     }
