@@ -1,8 +1,4 @@
 ﻿using BenchmarkDotNet.Running;
-using System.Linq;
-using BenchmarkDotNet.Attributes;
-using static TextFile.Parser.CsvTests;
-using BenchmarkDotNet.Loggers;
 
 namespace TextFile.Parser;
 

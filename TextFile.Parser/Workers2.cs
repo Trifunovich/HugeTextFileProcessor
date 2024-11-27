@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -22,7 +21,7 @@ public class Workers2 : WorkerParserBase
         await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
     }
 
-    static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
+    private static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
     {
         if (!File.Exists(inputFile))
         {
@@ -35,7 +34,7 @@ public class Workers2 : WorkerParserBase
             int bytesRead;
             while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
-                var lines = new string(buffer, 0, bytesRead).Split(["\r\n", "\n"], StringSplitOptions.None);
+                var lines = new string(buffer, 0, bytesRead).Split(["\r\n", "\n"], StringSplitOptions.TrimEntries);
                 foreach (var line in lines)
                 {
                     linesQueue.Add(line);
