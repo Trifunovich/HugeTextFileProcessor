@@ -6,7 +6,7 @@ public abstract class ParserBase : IParser
 {
     protected const int ChunkSize = 10000000; // Adjust this based on your memory constraints
     protected readonly ConcurrentDictionary<int, long> _procCount = new();
-    protected string CurrentTs;
+    protected static string? CurrentTs;
     protected string ChunkFolder;
     protected string InputFile;
     protected string OutputFile;
@@ -15,7 +15,7 @@ public abstract class ParserBase : IParser
     {
         InputFile = "D:\\largefiletext\\input_file_2024112549_1.txt";
         var outputFolder = Path.GetDirectoryName(InputFile);
-        CurrentTs = DateTime.Now.ToString("yyyyMMddHHmmss");
+        CurrentTs ??= DateTime.Now.ToString("yyyyMMddHHmmss");
         OutputFile = $"{outputFolder}\\output_{GetType().Name}_{CurrentTs}.txt";
         ChunkFolder = $"{outputFolder}\\chunks_{CurrentTs}";
     }

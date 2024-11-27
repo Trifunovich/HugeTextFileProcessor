@@ -1,29 +1,15 @@
-﻿using System.Collections.Concurrent;
+﻿using BenchmarkDotNet.Loggers;
+using System.Collections.Concurrent;
 using System.IO.MemoryMappedFiles;
 
 namespace TextFile.Parser;
 
-public class ClassicParser
+public class ClassicParser : WorkerParserBase
 {
-
-    public async Task ParseAndSortFile(string inputFile)
+    public override async Task CreateExternalChunks()
     {
-        var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        Directory.CreateDirectory(tempDirectory);
-
-        var sortedChunks = await SplitAndSortChunks(inputFile, tempDirectory);
-
-        var timestamp = DateTime.Now
-            .ToString("yyyyMMddHHmmss");
-        var inputFileWoExt = Path.GetFileNameWithoutExtension(inputFile);
-        var extension = Path.GetExtension(inputFile);
-        var outputFile = $"{inputFileWoExt}_output_{timestamp}{extension}";
-
-        Console.WriteLine($"Writing to {outputFile}...");
-        await MergeSortedChunks(sortedChunks, outputFile);
-        Console.WriteLine($"Finished, check {outputFile}");
-
-        Directory.Delete(tempDirectory, true);
+        await base.CreateExternalChunks();
+        _ = await SplitAndSortChunks(InputFile, ChunkFolder);
     }
 
     private async Task<List<string>> SplitAndSortChunks(string inputFile, string tempDirectory)
@@ -86,43 +72,8 @@ public class ClassicParser
     {
         var sortedLines = lines
             .AsParallel()
-            .OrderBy(line => line.Split(". ")[1])
+            .OrderBy(line => line.Split(". ")[1].Trim())
             .ThenBy(line => int.Parse(line.Split(". ")[0]));
         await File.WriteAllLinesAsync(chunkFile, sortedLines);
-    }
-
-    private static async Task MergeSortedChunks(List<string> sortedChunks, string outputFile)
-    {
-        var readers = sortedChunks.Select(chunk => new StreamReader(File.OpenRead(chunk), bufferSize: 1024 * 1024)).ToList(); // 1MB buffer
-        var queue = new SortedList<string, StreamReader>();
-
-        foreach (var reader in readers)
-        {
-            if (await reader.ReadLineAsync() is string line)
-            {
-                queue.Add(line, reader);
-            }
-        }
-
-        await using (var writer = new StreamWriter(File.OpenWrite(outputFile), bufferSize: 1024 * 1024)) // 1MB buffer
-        {
-            while (queue.Any())
-            {
-                var kvp = queue.First();
-                queue.RemoveAt(0);
-
-                await writer.WriteLineAsync(kvp.Key);
-
-                if (await kvp.Value.ReadLineAsync() is string line)
-                {
-                    queue.Add(line, kvp.Value);
-                }
-            }
-        }
-
-        foreach (var reader in readers)
-        {
-            reader.Dispose();
-        }
     }
 }
