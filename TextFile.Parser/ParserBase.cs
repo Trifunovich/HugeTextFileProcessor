@@ -4,7 +4,7 @@ namespace TextFile.Parser;
 
 public abstract class ParserBase : IParser
 {
-    protected const int ChunkSize = 10000000; // Adjust this based on your memory constraints
+    protected const int ChunkSize = 250000000; // Adjust this based on your memory constraints
     protected readonly ConcurrentDictionary<int, long> _procCount = new();
     protected static string? CurrentTs;
     protected string ChunkFolder;

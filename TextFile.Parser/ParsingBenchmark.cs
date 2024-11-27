@@ -7,7 +7,7 @@ public class ParsingBenchmark
     [Benchmark(OperationsPerInvoke = 2)]
     public async Task BenchmarkParseAndSortFile()
     {
-        var parser = new Workers();
+        var parser = new ClassicParser();
         await Run(parser);
     }
 

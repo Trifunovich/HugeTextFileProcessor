@@ -36,7 +36,7 @@ public class ClassicParser : WorkerParserBase
             currentChunkSize += line.Length;
             processedSize += line.Length;
 
-            if (currentChunkSize < 10000) continue;
+            if (currentChunkSize < ChunkSize) continue;
             var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunkIndex++}.txt");
             await WriteSortedChunk(chunkFile, lines);
             chunks.Add(chunkFile);
