@@ -4,7 +4,7 @@ namespace TextFile.Parser;
 
 public class ParsingBenchmark
 {
-    private readonly FileParser _parser = new FileParser();
+    private readonly ClassicParser _parser = new ClassicParser();
 
     [Benchmark(OperationsPerInvoke = 2)]
     public async Task BenchmarkParseAndSortFile()

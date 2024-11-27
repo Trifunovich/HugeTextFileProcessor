@@ -3,7 +3,7 @@ using System.IO.MemoryMappedFiles;
 
 namespace TextFile.Parser;
 
-public class FileParser
+public class ClassicParser
 {
 
     public async Task ParseAndSortFile(string inputFile)
@@ -13,7 +13,8 @@ public class FileParser
 
         var sortedChunks = await SplitAndSortChunks(inputFile, tempDirectory);
 
-        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+        var timestamp = DateTime.Now
+            .ToString("yyyyMMddHHmmss");
         var inputFileWoExt = Path.GetFileNameWithoutExtension(inputFile);
         var extension = Path.GetExtension(inputFile);
         var outputFile = $"{inputFileWoExt}_output_{timestamp}{extension}";
@@ -30,10 +31,10 @@ public class FileParser
         var chunks = new ConcurrentBag<string>();
         var lines = new List<string>();
         long currentChunkSize = 0;
-        int chunkIndex = 0;
+        var chunkIndex = 0;
 
         var fileInfo = new FileInfo(inputFile);
-        long totalFileSize = fileInfo.Length;
+        var totalFileSize = fileInfo.Length;
         long processedSize = 0;
 
         using var mmf = MemoryMappedFile.CreateFromFile(inputFile, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
@@ -49,17 +50,12 @@ public class FileParser
             currentChunkSize += line.Length;
             processedSize += line.Length;
 
-            if (currentChunkSize >= 10000)
-            {
-                var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunkIndex++}.txt");
-                await WriteSortedChunk(chunkFile, lines);
-                chunks.Add(chunkFile);
-                lines.Clear();
-                currentChunkSize = 0;
-            }
-
-            // Report progress
-            //Console.Write($"\rProgress: {processedSize * 100.0 / totalFileSize:F3}%");
+            if (currentChunkSize < 10000) continue;
+            var chunkFile = Path.Combine(tempDirectory, $"chunk_{chunkIndex++}.txt");
+            await WriteSortedChunk(chunkFile, lines);
+            chunks.Add(chunkFile);
+            lines.Clear();
+            currentChunkSize = 0;
         }
 
         if (lines.Count > 0)

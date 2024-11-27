@@ -25,7 +25,7 @@ public class Workers2 : ParserBase
 
     public override Task MergeSortedChunks()
     {
-        var sortedFiles = Directory.GetFiles(Directory.GetCurrentDirectory(), "chunk_*.txt");
+        var sortedFiles = Directory.GetFiles(ChunkFolder, "chunk_*.txt");
         var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
         var queue = new SortedDictionary<string, QueueItem>();
 

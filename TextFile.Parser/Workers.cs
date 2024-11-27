@@ -21,18 +21,13 @@ public class Workers : ParserBase
         var processingTask = Task.Run(() => ProcessLinesAsync(linesQueue));
 
         await Task.WhenAll(readingTask, processingTask);
-
-        MergeSortedChunks(OutputFile);
-
-        Console.WriteLine("File parsing and sorting complete.");
     }
 
-    static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
+    private static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
     {
         using (var reader = new StreamReader(inputFile))
         {
-            string line;
-            while ((line = await reader.ReadLineAsync()) != null)
+            while (await reader.ReadLineAsync() is { } line)
             {
                 linesQueue.Add(line);
             }
@@ -40,24 +35,22 @@ public class Workers : ParserBase
         linesQueue.CompleteAdding();
     }
 
-    static async Task ProcessLinesAsync(BlockingCollection<string> linesQueue)
+    private static async Task ProcessLinesAsync(BlockingCollection<string> linesQueue)
     {
         var records = new List<Record>();
-        int chunkIndex = 0;
+        var chunkIndex = 0;
 
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
-            var parts = line.Split(new[] { ". " }, 2, StringSplitOptions.None);
-            if (parts.Length == 2 && int.TryParse(parts[0], out int number))
+            var parts = line.Split([". "], 2, StringSplitOptions.None);
+            if (parts.Length == 2 && int.TryParse(parts[0], out var number))
             {
                 records.Add(new Record { Number = number, Text = parts[1] });
             }
 
-            if (records.Count >= ChunkSize)
-            {
-                await WriteChunkToFileAsync(records, chunkIndex++);
-                records.Clear();
-            }
+            if (records.Count < ChunkSize) continue;
+            await WriteChunkToFileAsync(records, chunkIndex++);
+            records.Clear();
         }
 
         if (records.Count > 0)
@@ -66,52 +59,47 @@ public class Workers : ParserBase
         }
     }
 
-    static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex)
+    private static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex)
     {
         records.Sort((x, y) =>
         {
-            int textComparison = string.Compare(x.Text, y.Text, StringComparison.Ordinal);
+            var textComparison = string.Compare(x.Text, y.Text, StringComparison.Ordinal);
             return textComparison != 0 ? textComparison : x.Number.CompareTo(y.Number);
         });
 
-        string chunkFileName = $"chunk_{chunkIndex}.txt";
-        using (var writer = new StreamWriter(chunkFileName))
+        var chunkFileName = $"chunk_{chunkIndex}.txt";
+        await using var writer = new StreamWriter(chunkFileName);
+        foreach (var record in records)
         {
-            foreach (var record in records)
-            {
-                await writer.WriteLineAsync($"{record.Number}. {record.Text}");
-            }
+            await writer.WriteLineAsync($"{record.Number}. {record.Text}");
         }
     }
 
-    static void MergeSortedChunks(string outputFile)
+    public override async Task MergeSortedChunks()
     {
-        var sortedFiles = Directory.GetFiles(Directory.GetCurrentDirectory(), "chunk_*.txt");
+        var sortedFiles = Directory.GetFiles(ChunkFolder, "chunk_*.txt");
         var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
         var queue = new SortedDictionary<string, QueueItem>();
 
-        foreach (var reader in readers)
+        foreach (var reader in readers.Where(reader => reader.Peek() >= 0))
         {
-            if (reader.Peek() >= 0)
-            {
-                var line = reader.ReadLine();
-                queue.Add(line, new QueueItem { Line = line, Reader = reader });
-            }
+            var line = await reader.ReadLineAsync();
+            if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = reader });
         }
 
-        using (var writer = new StreamWriter(outputFile))
+        await using (var writer = new StreamWriter(OutputFile))
         {
             while (queue.Count > 0)
             {
                 var first = queue.First();
-                writer.WriteLine(first.Key);
+                await writer.WriteLineAsync(first.Key);
 
                 var queueItem = first.Value;
                 queue.Remove(first.Key);
 
                 if (queueItem.Reader.Peek() >= 0)
                 {
-                    var line = queueItem.Reader.ReadLine();
+                    var line = await queueItem.Reader.ReadLineAsync();
                     queue.Add(line, new QueueItem { Line = line, Reader = queueItem.Reader });
                 }
                 else
@@ -127,20 +115,15 @@ public class Workers : ParserBase
         }
     }
 
-    class Record
+    private class Record
     {
         public int Number { get; set; }
         public string Text { get; set; }
     }
 
-    class QueueItem
+    private class QueueItem
     {
         public string Line { get; set; }
         public StreamReader Reader { get; set; }
-    }
-
-    public override Task MergeSortedChunks()
-    {
-        throw new NotImplementedException();
     }
 }
