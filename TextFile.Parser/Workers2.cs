@@ -96,7 +96,7 @@ public class Workers2 : ParserBase
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
             _procCount[ind]++;
-            var parts = line.Split([". "], 2, StringSplitOptions.None);
+            var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
             if (parts.Length == 2 && int.TryParse(parts[0], out var number))
             {
                 records.Add(new Record { Number = number, Text = parts[1] });
