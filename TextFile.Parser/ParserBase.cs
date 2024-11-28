@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using BenchmarkDotNet.Configs;
 using Microsoft.Extensions.Configuration;
 
 namespace TextFile.Parser;
@@ -7,6 +6,7 @@ namespace TextFile.Parser;
 public abstract class ParserBase : IParser
 {
     protected static int ChunkSize = 1_000_000;
+    protected static int BulkWriteSize = 10000;
     protected static int BoundedCap = 1000;
     protected readonly ConcurrentDictionary<int, long> ProcCount = new();
     protected static string? CurrentTs;

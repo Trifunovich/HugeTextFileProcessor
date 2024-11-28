@@ -13,7 +13,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
     public override async Task CreateExternalChunks()
     {
         await base.CreateExternalChunks();
-        var linesQueue = new BlockingCollection<string>(boundedCapacity: BoundedCap);
+        var linesQueue = new BlockingCollection<(int, string)>(boundedCapacity: BoundedCap);
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
         var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
         {
@@ -63,7 +63,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
         }
     }
 
-    private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<string> linesQueue)
+    private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<(int, string)> linesQueue)
     {
         if (!File.Exists(inputFile))
         {
@@ -79,25 +79,25 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
                 var lines = new string(buffer, 0, bytesRead).Split(["\r\n", "\n"], StringSplitOptions.TrimEntries);
                 foreach (var line in lines)
                 {
-                    linesQueue.Add(line);
+                    var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
+                    if (parts.Length == 2 && int.TryParse(parts[0], out var number))
+                    {
+                        linesQueue.Add((number, parts[1]));
+                    }
                 }
             }
         }
         linesQueue.CompleteAdding();
     }
 
-    private async Task ProcessLinesAsync(int ind, BlockingCollection<string> linesQueue, string chunkFolder)
+    private async Task ProcessLinesAsync(int ind, BlockingCollection<(int, string)> linesQueue, string chunkFolder)
     {
         var records = new List<Record>();
         var chunkIndex = 0;
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
             ProcCount[ind]++;
-            var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
-            if (parts.Length == 2 && int.TryParse(parts[0], out var number))
-            {
-                records.Add(new Record { Number = number, Text = parts[1] });
-            }
+            records.Add(new() {Number = line.Item1, Text = line.Item2});
 
             if (records.Count < ChunkSize) continue;
             await WriteChunkToFileAsync(records, chunkIndex++, ind, chunkFolder);
@@ -124,7 +124,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
         await using var writer = new StreamWriter(chunkFileName);
         foreach (var record in records)
         {
-            await writer.WriteLineAsync($"{record.Number}. {record.Text}");
+            await writer.WriteLineAsync(record.ToString());
         }
     }
 
@@ -132,6 +132,11 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
     {
         public int Number { get; init; }
         public string Text { get; init; }
+
+        public override string ToString()
+        {
+            return $"{Number}. {Text}";
+        }
     }
 
     private class QueueItem
