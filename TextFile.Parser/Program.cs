@@ -14,9 +14,8 @@ internal class Program
         {
             var host = CreateHostBuilder(args).Build();
             var parser = host.Services.GetRequiredService<IParser>();
-
             var startTime = DateTime.Now;
-            Log.Information("Processing started at {StartTime:d}", startTime);
+            Log.Information("Processing started at {StartTime:yyyy-MM-dd-hh.mm.ss}", startTime);
             Log.Information("[0.000] Starting to parse and create chunks");
             await parser.CreateExternalChunks();
             var midTime = DateTime.Now;
@@ -41,10 +40,12 @@ internal class Program
             {
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
             })
-            .UseSerilog()
+            .UseSerilog((context, services, configuration) => configuration
+                .ReadFrom.Configuration(context.Configuration)
+                .WriteTo.Console()
+                .WriteTo.File("logs/log.txt", rollingInterval: RollingInterval.Day)) // Add this line to configure file logging
             .ConfigureServices((context, services) =>
             {
                 services.AddTransient<IParser, ParallelBackgroundWorkers>();
             });
-    
 }
