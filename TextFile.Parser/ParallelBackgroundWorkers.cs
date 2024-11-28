@@ -1,4 +1,6 @@
-﻿namespace TextFile.Parser;
+﻿using Microsoft.Extensions.Configuration;
+
+namespace TextFile.Parser;
 
 using System;
 using System.Collections.Concurrent;
@@ -6,7 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-public class ParallelBackgroundWorkers : ParserBase
+public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBase(configuration)
 {
     public override async Task CreateExternalChunks()
     {
@@ -15,7 +17,7 @@ public class ParallelBackgroundWorkers : ParserBase
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
         var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
         {
-            _procCount[x] = 0;
+            ProcCount[x] = 0;
             return ProcessLinesAsync(x, linesQueue, ChunkFolder);
         })).ToArray();
         await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
@@ -61,7 +63,7 @@ public class ParallelBackgroundWorkers : ParserBase
         }
     }
 
-    private static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
+    private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<string> linesQueue)
     {
         if (!File.Exists(inputFile))
         {
@@ -90,7 +92,7 @@ public class ParallelBackgroundWorkers : ParserBase
         var chunkIndex = 0;
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
-            _procCount[ind]++;
+            ProcCount[ind]++;
             var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
             if (parts.Length == 2 && int.TryParse(parts[0], out var number))
             {
@@ -107,7 +109,7 @@ public class ParallelBackgroundWorkers : ParserBase
             await WriteChunkToFileAsync(records, chunkIndex, ind, chunkFolder);
         }
 
-        Console.WriteLine($"Processor {ind} has count {_procCount[ind]}");
+        Console.WriteLine($"Processor {ind} has count {ProcCount[ind]}");
     }
 
     private static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex, int ind, string chunkFolder)

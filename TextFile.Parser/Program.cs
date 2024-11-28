@@ -1,24 +1,31 @@
 ﻿using BenchmarkDotNet.Running;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace TextFile.Parser;
 
 internal class Program
 {
-    private static async Task Main(string[] args)
+    private static Task Main(string[] args)
     {
-        if (args.Length < 1)
-        {
-            Console.WriteLine("Usage: <program> <input_file>");
-            return;
-        }
-
-        var inputFile = args[0] ?? "D:\\largefiletext\\input_file_2024112517_10.txt";
-        var outputFolder = Path.GetDirectoryName(inputFile);
-        var parser = new ParallelBackgroundWorkers();
-        var outputFile = $"{outputFolder}\\output_{parser.GetType().Name}_{DateTime.Now.ToString("yyyyMMddHHmmss")}.txt";
-
-        //await (new ParsingBenchmark()).Run(parser, inputFile, outputFile);
-        BenchmarkRunner.Run<ParsingBenchmark>();
+        var host = CreateHostBuilder(args).Build();
+        var parser = host.Services.GetRequiredService<IParser>();
+        ParsingRunner.SetParser(parser);
+        //await ParsingRunner.Start();
+        BenchmarkRunner.Run<ParsingRunner>();
         Console.WriteLine("File parsing and sorting complete.");
+        return Task.CompletedTask;
     }
+
+    public static IHostBuilder CreateHostBuilder(string[] args) =>
+        Host.CreateDefaultBuilder(args)
+            .ConfigureAppConfiguration((context, config) =>
+            {
+                config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+            })
+            .ConfigureServices((context, services) =>
+            {
+                services.AddTransient<IParser, ParallelBackgroundWorkers>(); 
+            });
 }

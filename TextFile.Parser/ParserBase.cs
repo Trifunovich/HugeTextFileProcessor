@@ -1,33 +1,30 @@
 ﻿using System.Collections.Concurrent;
+using BenchmarkDotNet.Configs;
+using Microsoft.Extensions.Configuration;
 
 namespace TextFile.Parser;
 
 public abstract class ParserBase : IParser
 {
-    protected const int ChunkSize = 1_000_000;
-    protected const int BoundedCap = 1000;
-    protected readonly ConcurrentDictionary<int, long> _procCount = new();
+    protected static int ChunkSize = 1_000_000;
+    protected static int BoundedCap = 1000;
+    protected readonly ConcurrentDictionary<int, long> ProcCount = new();
     protected static string? CurrentTs;
     protected string ChunkFolder;
-    protected string InputFile;
+    protected string? InputFile;
     protected string OutputFile;
 
-    protected ParserBase()
+    protected ParserBase(IConfiguration configuration)
     {
-        InputFile = "D:\\largefiletext\\input_file_2024112549_1.txt";
+        var section = configuration.GetSection("ParserSettings");
+        InputFile = section.GetValue<string>("InputFilePath");
+        ChunkSize = section.GetValue<int>("ChunkSize");
+        BoundedCap = section.GetValue<int>("BoundedCap");
         var outputFolder = Path.GetDirectoryName(InputFile);
         CurrentTs ??= DateTime.Now.ToString("yyyyMMddHHmmss");
         OutputFile = $"{outputFolder}\\output_{GetType().Name}_{CurrentTs}.txt";
         ChunkFolder = $"{outputFolder}\\chunks_{CurrentTs}";
     }
-
-    public void SetPaths(string inputFile, string outputFile, string chunkFolder)
-    {
-        InputFile = inputFile;
-        OutputFile = outputFile;
-        ChunkFolder = chunkFolder;
-    }
-
 
     public virtual Task CreateExternalChunks()
     {

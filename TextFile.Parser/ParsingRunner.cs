@@ -2,16 +2,23 @@
 
 namespace TextFile.Parser;
 
-public class ParsingBenchmark
+public class ParsingRunner
 {
-    [Benchmark(OperationsPerInvoke = 2)]
-    public async Task BenchmarkParseAndSortFile()
+    //due to benchmarks being static, we can't use DI here
+    private static IParser _parser;
+
+    public static void SetParser(IParser parser)
     {
-        var parser = new ParallelBackgroundWorkers();
-        await Run(parser);
+        _parser = parser;
     }
 
-    public static async Task Run(IParser parser)
+    [Benchmark(OperationsPerInvoke = 2)]
+    public static async Task Start()
+    {
+        await Run(_parser);
+    }
+
+    private static async Task Run(IParser parser)
     {
         var startTime = DateTime.Now;
         Console.WriteLine($"[0.000] Starting to parse and create chunks");

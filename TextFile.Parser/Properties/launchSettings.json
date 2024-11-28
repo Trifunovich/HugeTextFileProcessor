@@ -1,8 +1,7 @@
 {
   "profiles": {
     "TextFile.Parser": {
-      "commandName": "Project",
-      "commandLineArgs": "D:\\largefiletext\\input_file_2024112517_10.txt"
+      "commandName": "Project"
     }
   }
 }
