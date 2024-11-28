@@ -1,9 +1,26 @@
-﻿using System.Collections.Concurrent;
+﻿namespace TextFile.Parser;
 
-namespace TextFile.Parser;
+using System;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
-public abstract class WorkerParserBase : ParserBase
+public class ParallelBackgroundWorkers : ParserBase
 {
+    public override async Task CreateExternalChunks()
+    {
+        await base.CreateExternalChunks();
+        var linesQueue = new BlockingCollection<string>(boundedCapacity: BoundedCap);
+        var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
+        var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
+        {
+            _procCount[x] = 0;
+            return ProcessLinesAsync(x, linesQueue, ChunkFolder);
+        })).ToArray();
+        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
+    }
+
     public override async Task MergeSortedChunks()
     {
         var sortedFiles = Directory.GetFiles(ChunkFolder, "chunk_*.txt");
@@ -20,15 +37,16 @@ public abstract class WorkerParserBase : ParserBase
         {
             while (queue.Count > 0)
             {
-                var (key, queueItem) = queue.First();
-                await writer.WriteLineAsync(key);
+                var first = queue.First();
+                await writer.WriteLineAsync(first.Key);
 
-                queue.Remove(key);
+                var queueItem = first.Value;
+                queue.Remove(first.Key);
 
                 if (queueItem.Reader.Peek() >= 0)
                 {
                     var line = await queueItem.Reader.ReadLineAsync();
-                    if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = queueItem.Reader });
+                    queue.Add(line, new QueueItem { Line = line, Reader = queueItem.Reader });
                 }
                 else
                 {
@@ -37,9 +55,36 @@ public abstract class WorkerParserBase : ParserBase
             }
         }
 
-        Directory.Delete(ChunkFolder, true);
+        foreach (var file in sortedFiles)
+        {
+            File.Delete(file);
+        }
     }
-    protected async Task ProcessLinesAsync(int ind, BlockingCollection<string> linesQueue, string chunkFolder)
+
+    private static async Task ReadLinesAsync(string inputFile, BlockingCollection<string> linesQueue)
+    {
+        if (!File.Exists(inputFile))
+        {
+            throw new FileNotFoundException($"The file {inputFile} does not exist.");
+        }
+
+        using (var reader = new StreamReader(inputFile))
+        {
+            var buffer = new char[ChunkSize];
+            int bytesRead;
+            while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                var lines = new string(buffer, 0, bytesRead).Split(["\r\n", "\n"], StringSplitOptions.TrimEntries);
+                foreach (var line in lines)
+                {
+                    linesQueue.Add(line);
+                }
+            }
+        }
+        linesQueue.CompleteAdding();
+    }
+
+    private async Task ProcessLinesAsync(int ind, BlockingCollection<string> linesQueue, string chunkFolder)
     {
         var records = new List<Record>();
         var chunkIndex = 0;
@@ -81,13 +126,13 @@ public abstract class WorkerParserBase : ParserBase
         }
     }
 
-    protected class Record
+    private class Record
     {
         public int Number { get; init; }
         public string Text { get; init; }
     }
 
-    protected class QueueItem
+    private class QueueItem
     {
         public string Line { get; set; }
         public StreamReader Reader { get; init; }

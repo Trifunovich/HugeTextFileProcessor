@@ -14,7 +14,7 @@ internal class Program
 
         var inputFile = args[0] ?? "D:\\largefiletext\\input_file_2024112517_10.txt";
         var outputFolder = Path.GetDirectoryName(inputFile);
-        var parser = new Workers2();
+        var parser = new ParallelBackgroundWorkers();
         var outputFile = $"{outputFolder}\\output_{parser.GetType().Name}_{DateTime.Now.ToString("yyyyMMddHHmmss")}.txt";
 
         //await (new ParsingBenchmark()).Run(parser, inputFile, outputFile);

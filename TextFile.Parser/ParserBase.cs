@@ -4,7 +4,8 @@ namespace TextFile.Parser;
 
 public abstract class ParserBase : IParser
 {
-    protected const int ChunkSize = 250000000; // Adjust this based on your memory constraints
+    protected const int ChunkSize = 1_000_000;
+    protected const int BoundedCap = 1000;
     protected readonly ConcurrentDictionary<int, long> _procCount = new();
     protected static string? CurrentTs;
     protected string ChunkFolder;
@@ -19,7 +20,6 @@ public abstract class ParserBase : IParser
         OutputFile = $"{outputFolder}\\output_{GetType().Name}_{CurrentTs}.txt";
         ChunkFolder = $"{outputFolder}\\chunks_{CurrentTs}";
     }
-
 
     public void SetPaths(string inputFile, string outputFile, string chunkFolder)
     {
