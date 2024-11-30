@@ -10,6 +10,7 @@ public abstract class ParserBase : IParser
     protected static int BulkWriteSize = 100000;
     protected static int BoundedCap = 1000;
     protected readonly ConcurrentDictionary<int, long> ProcCount = new();
+    protected readonly ConcurrentDictionary<int, long> MmCount = new();
     protected static string? CurrentTs;
     protected string ChunkFolder;
     protected string? InputFile;

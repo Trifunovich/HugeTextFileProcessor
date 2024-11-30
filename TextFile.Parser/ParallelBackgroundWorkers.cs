@@ -18,20 +18,23 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         await base.CreateExternalChunks();
         var linesQueue = new BlockingCollection<(int, string)>(boundedCapacity: BoundedCap);
         var filesQueue = new BlockingCollection<string>(new ConcurrentStack<string>());
+        var processors = Environment.ProcessorCount;
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
-        var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
+        var processingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
         {
             ProcCount[x] = 0;
             return ProcessLinesAsync(x, linesQueue, ChunkFolder, filesQueue);
         })).ToArray();
-        var microMergingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
+        var microMergingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
         {
-            ProcCount[x] = 0;
-            return MicroMergeAsync(filesQueue);
+            MmCount[x] = 0;
+            return MicroMergeAsync(filesQueue, x);
         })).ToArray();
-        await Task.WhenAll(new[] { readingTask }
-            .Concat(processingTasks)
-            .Concat(microMergingTasks));
+
+        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
+        filesQueue.CompleteAdding(); // Close the filesQueue after processingTasks are done
+
+        await Task.WhenAll(microMergingTasks);
     }
 
     public override async Task MergeSortedChunks()
@@ -133,37 +136,38 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
             await WriteChunkToFileAsync(records, chunkIndex, ind, chunkFolder, filesQueue);
         }
 
-        Console.WriteLine($"Processor {ind} has count {ProcCount[ind]}");
+        logger.LogInformation("Task {Index} has processed {Qty} lines", ind, ProcCount[ind]);
     }
 
-    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue)
+    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue, int ind)
     {
-        while (filesQueue.Count < 2)
+        while (true)
         {
-            if (filesQueue.IsAddingCompleted)
+            while (filesQueue.Count < 3)
             {
-                if (filesQueue.Count != 1)
+                if (!filesQueue.IsAddingCompleted)
                 {
-                    logger.LogWarning("There are not enough files to merge");
+                    await Task.Delay(100);
+                }
+                else
+                {
+                    logger.LogInformation("There final merge will be done later");
+                    logger.LogInformation("Task {Index} has processed {Qty} lines", ind, MmCount[ind]);
                     return;
                 }
-
-                logger.LogWarning("Adding last file to merge");
-                var lastFile = filesQueue.Take();
-                filesQueue.Add(lastFile);
-                return;
             }
 
-            await Task.Delay(100);
+            var file1 = filesQueue.Take();
+            var file2 = filesQueue.Take();
+
+            var newFileName = GenerateNewFileName(file1, mmIndex++);
+
+            await MergeFiles([file1, file2], newFileName);
+            filesQueue.Add(newFileName);
+            logger.LogDebug("File {FilePath} merged out of {Fl1} and {Fl2}", newFileName, file1, file2);
         }
 
-        var file1 = filesQueue.Take();
-        var file2 = filesQueue.Take();
 
-        var newFileName = GenerateNewFileName(file1, mmIndex++);
-
-        await MergeFiles([file1, file2], newFileName);
-        filesQueue.Add(newFileName);
     }
 
     private string GenerateNewFileName(string originalFileName, int index)
