@@ -14,6 +14,11 @@
 		<OutputPath>bin\Benchmark\</OutputPath>
 	</PropertyGroup>
 
+	<ItemGroup>
+	  <None Remove="resources\create_Bench.ps1" />
+	  <None Remove="resources\create_chunks.ps1" />
+	</ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
@@ -28,10 +33,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="appsettings.bench.json">
+    <Content Include="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="appsettings.json">
+    <Content Include="resources\create_Bench.ps1">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="resources\create_chunks.ps1">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

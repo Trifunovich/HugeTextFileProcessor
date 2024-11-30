@@ -1,70 +1,86 @@
 ﻿using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Loggers;
-using System;
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Serilog.Core;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 
 namespace TextFile.Parser;
 
 public class MicroMergeAsyncBench : BenchBase
 {
     private static int mmIndex = 0;
-    protected static int ChunkSize = 1_000_000;
     protected readonly ConcurrentDictionary<int, long> ProcCount = new();
     protected readonly ConcurrentDictionary<int, long> MmCount = new();
 
-    [GlobalSetup]
+    protected string[] _chunkFolders;
+
+    protected readonly string[] _generatedChunkFolders =
+    [
+        "F:\\largetextfiles\\small_chunk_folder",
+        "F:\\largetextfiles\\medium_chunk_folder",
+        "F:\\largetextfiles\\large_chunk_folder"
+    ];
+
+    [Benchmark(Baseline = true)]
+    public async Task MicroMergeAsyncL_Benchmark()
+    {
+        await RunMicroMerge("large");
+    }
+
+    [Benchmark]
+    public async Task MicroMergeAsyncM_Benchmark()
+    {
+        await RunMicroMerge("medium");
+    }
+
+    [Benchmark]
+    public async Task MicroMergeAsyncS_Benchmark()
+    {
+        await RunMicroMerge("small");
+    }
+
     public override void Setup()
     {
         base.Setup();
-
-        var host = CreateHostBuilder([]).Build();
-        var c = host.Services.GetRequiredService<IConfiguration>();
-        var chFolders = c.GetSection("ParserSettings").GetValue<string[]>("ChunkFolders");
-        if (chFolders == null) return;
-        _chunkFolders = chFolders.Select(f => $"{f}_{Timestamp}").ToArray();
-        foreach (var sourceFolder in chFolders)
-        {
-            foreach (var destFolder in _chunkFolders)
-            {
-                foreach (var file in Directory.GetFiles(sourceFolder))
-                {
-                    var destFile = Path.Combine(destFolder, Path.GetFileName(file));
-                    Directory.CreateDirectory(destFolder);
-                    File.Copy(file, destFile, true);
-                }
-            }
-        }
+        _chunkFolders = _generatedChunkFolders.Select(f => $"{f}_{Timestamp}").ToArray();
     }
 
-    [Benchmark(Baseline = true)]
-    [ArgumentsSource(nameof(InputChunkFiles))]
-    public async Task MicroMergeAsync_Benchmark((IEnumerable<string>, string) inputFiles)
+    private async Task RunMicroMerge(string size)
     {
+        var genFol = _generatedChunkFolders.First(x => x.Contains(size));
+        var chFol = _chunkFolders.First(x => x.Contains(size));
+
+        if (Directory.Exists(chFol))
+        {
+            Directory.Delete(chFol, true);
+        }
+
+        var outputPath = Path.Combine(OutputFileFolder, size);
+
+        if (Directory.Exists(OutputFileFolder))
+        {
+            Directory.Delete(OutputFileFolder, true);
+            Directory.CreateDirectory(OutputFileFolder);
+        }
+
+        foreach (var file in Directory.GetFiles(genFol))
+        {
+            var destFile = Path.Combine(chFol, Path.GetFileName(file));
+            Directory.CreateDirectory(chFol);
+            File.Copy(file, destFile, true);
+        }
+
         var filesQueue = new BlockingCollection<string>();
 
-        foreach (var f in inputFiles.Item1)
+        foreach (var f in Directory.GetFiles(chFol))
         {
             filesQueue.Add(f);
         }
 
+
         ProcCount[0] = 0;
         var nullLogger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
-        await MicroMergeAsync(filesQueue, 0, nullLogger, Path.Combine(OutputFileFolder, inputFiles.Item2));
+        await MicroMergeAsync(filesQueue, 0, nullLogger, outputPath);
     }
 
-    public IEnumerable<(IEnumerable<string>, string)> InputChunkFiles()
-    {
-        return _chunkFolders.Select(folder =>
-            new ValueTuple<IEnumerable<string>, string>(
-                Directory.GetFiles(folder).AsEnumerable(),
-                folder
-            )
-        );
-    }
 
     private static readonly Lock FileLock = new();
 
@@ -72,27 +88,16 @@ public class MicroMergeAsyncBench : BenchBase
     {
         while (true)
         {
-            while (filesQueue.Count < 2)
+            if (filesQueue.Count < 2)
             {
-                if (!filesQueue.IsAddingCompleted)
-                {
-                    await Task.Delay(100);
-                }
-                else
-                {
-                    logger.LogInformation("Final merge will be done later");
-                    logger.LogInformation("Task {Index} has processed {Qty} lines", ind, MmCount[ind]);
-                    return;
-                }
+                filesQueue.CompleteAdding();
+                File.Move(filesQueue.Take(), outputFile);
+                break;
             }
 
             string file1, file2;
             lock (FileLock)
             {
-                if (filesQueue.Count < 2)
-                {
-                    continue;
-                }
                 file1 = filesQueue.Take();
                 file2 = filesQueue.Take();
             }
@@ -102,15 +107,6 @@ public class MicroMergeAsyncBench : BenchBase
             if (file2 != null)
             {
                 await MergeFiles([file1, file2], newFileName, logger);
-            }
-            else
-            {
-                File.Move(file1, outputFile);
-                return;
-            }
-
-            if (!filesQueue.IsAddingCompleted)
-            {
                 filesQueue.Add(newFileName);
             }
 

@@ -18,27 +18,27 @@ public abstract class BenchBase
 
     protected string ChunkFolder;
     protected string OutputFileFolder;
-    protected string[] _chunkFolders;
 
     public IEnumerable<string> InputFiles()
     {
         return _textFiles;
     }
 
+    protected BenchBase()
+    {
+        Timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+    }
+
     [GlobalSetup]
     public virtual void Setup()
     {
-        Timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
         ChunkFolder = $@"F:\\largetextfiles\\chunks_bench_{Timestamp}";
         OutputFileFolder = $@"F:\\largetextfiles\\output_bench_{Timestamp}";
+        if (!Directory.Exists(OutputFileFolder))
+        {
+            Directory.CreateDirectory(OutputFileFolder);
+        }
     }
 
-    public string Timestamp { get; set; }
-
-    public static IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((context, config) =>
-            {
-                config.AddJsonFile("appsettings.bench.json", optional: false, reloadOnChange: true);
-            });
+    protected string? Timestamp { get; set; }
 }
