@@ -1,28 +1,14 @@
 ﻿using System.Buffers;
 using System.Collections.Concurrent;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Running;
 
 namespace TextFile.Parser;
 
-[MemoryDiagnoser]
-public class Benchmarks
+public class ReadLinesAsyncBench : BenchBase
 {
-    private readonly string[] inputFiles =
-    [
-        "F:\\largetextfiles\\bench_100.txt",
-        "F:\\largetextfiles\\bench_10000.txt",
-        "F:\\largetextfiles\\bench_1000000.txt"
-    ];
-
     [Params(10000)]
     public int N { get; set; }
-
-    [GlobalSetup]
-    public void Setup()
-    {
-
-    }
+   
 
     [Benchmark(Baseline = true)]
     [ArgumentsSource(nameof(InputFiles))]
@@ -40,11 +26,6 @@ public class Benchmarks
         var linesQueue = new BlockingCollection<(int, string)>();
 
         await ReadLinesAsyncSpan(inputFile, linesQueue, N);
-    }
-
-    public IEnumerable<string> InputFiles()
-    {
-        return inputFiles;
     }
 
     

@@ -12,7 +12,7 @@ internal class Program
     private static async Task Main(string[] args)
     {
 #if BENCHMARK
-        var summary = BenchmarkRunner.Run<Benchmarks>();
+        var summary = BenchmarkRunner.Run<ReadLinesAsyncBench>();
 #else
         try
         {

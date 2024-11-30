@@ -30,7 +30,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         var microMergingTask = Task.Run(() => MicroMergeAsync(filesQueue, 0));
 
         await readingTask;
-        await processingTask;
+        await Task.WhenAll(readingTask, processingTask);
         filesQueue.CompleteAdding(); // Close the filesQueue after processingTask is done
 
         await microMergingTask;
