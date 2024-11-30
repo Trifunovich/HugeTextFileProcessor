@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace TextFile.Parser;
 
@@ -8,58 +9,79 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBase(configuration)
+public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<ParallelBackgroundWorkers> logger) : ParserBase(configuration)
 {
+    private static int mmIndex = 0;
+
     public override async Task CreateExternalChunks()
     {
         await base.CreateExternalChunks();
         var linesQueue = new BlockingCollection<(int, string)>(boundedCapacity: BoundedCap);
+        var filesQueue = new BlockingCollection<string>(new ConcurrentStack<string>());
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
         var processingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
         {
             ProcCount[x] = 0;
-            return ProcessLinesAsync(x, linesQueue, ChunkFolder);
+            return ProcessLinesAsync(x, linesQueue, ChunkFolder, filesQueue);
         })).ToArray();
-        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
+        var microMergingTasks = Enumerable.Range(0, Environment.ProcessorCount).Select(x => Task.Run(() =>
+        {
+            ProcCount[x] = 0;
+            return MicroMergeAsync(filesQueue);
+        })).ToArray();
+        await Task.WhenAll(new[] { readingTask }
+            .Concat(processingTasks)
+            .Concat(microMergingTasks));
     }
 
     public override async Task MergeSortedChunks()
     {
         var sortedFiles = Directory.GetFiles(ChunkFolder, "chunk_*.txt");
-        var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
-        var queue = new SortedDictionary<string, QueueItem>();
+        await MergeFiles(sortedFiles, OutputFile);
+    }
 
-        foreach (var reader in readers.Where(reader => reader.Peek() >= 0))
+    private async Task MergeFiles(string[] sortedFiles, string outputFile)
+    {
+        try
         {
-            var line = await reader.ReadLineAsync();
-            if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = reader });
-        }
+            var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
+            var queue = new SortedDictionary<string, QueueItem>();
 
-        await using (var writer = new StreamWriter(OutputFile))
-        {
-            while (queue.Count > 0)
+            foreach (var reader in readers.Where(reader => reader.Peek() >= 0))
             {
-                var first = queue.First();
-                await writer.WriteLineAsync(first.Key);
+                var line = await reader.ReadLineAsync();
+                if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = reader });
+            }
 
-                var queueItem = first.Value;
-                queue.Remove(first.Key);
+            await using (var writer = new StreamWriter(outputFile))
+            {
+                while (queue.Count > 0)
+                {
+                    var (s, value) = queue.First();
+                    await writer.WriteLineAsync(s);
 
-                if (queueItem.Reader.Peek() >= 0)
-                {
-                    var line = await queueItem.Reader.ReadLineAsync();
-                    queue.Add(line, new QueueItem { Line = line, Reader = queueItem.Reader });
-                }
-                else
-                {
-                    queueItem.Reader.Dispose();
+                    queue.Remove(s);
+
+                    if (value.Reader.Peek() >= 0)
+                    {
+                        var line = await value.Reader.ReadLineAsync();
+                        if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = value.Reader });
+                    }
+                    else
+                    {
+                        value.Reader.Dispose();
+                    }
                 }
             }
-        }
 
-        foreach (var file in sortedFiles)
+            foreach (var file in sortedFiles)
+            {
+                File.Delete(file);
+            }
+        }
+        catch (Exception ex)
         {
-            File.Delete(file);
+            logger.LogError(ex, "Error while merging files");
         }
     }
 
@@ -72,7 +94,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
 
         using (var reader = new StreamReader(inputFile))
         {
-            var buffer = new char[ChunkSize];
+            var buffer = new char[BulkWriteSize];
             int bytesRead;
             while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
@@ -87,32 +109,72 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
                 }
             }
         }
+
         linesQueue.CompleteAdding();
     }
 
-    private async Task ProcessLinesAsync(int ind, BlockingCollection<(int, string)> linesQueue, string chunkFolder)
+    private async Task ProcessLinesAsync(int ind, BlockingCollection<(int, string)> linesQueue, string chunkFolder,
+        BlockingCollection<string> filesQueue)
     {
         var records = new List<Record>();
         var chunkIndex = 0;
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
             ProcCount[ind]++;
-            records.Add(new() {Number = line.Item1, Text = line.Item2});
+            records.Add(new Record {Number = line.Item1, Text = line.Item2});
 
             if (records.Count < ChunkSize) continue;
-            await WriteChunkToFileAsync(records, chunkIndex++, ind, chunkFolder);
+            await WriteChunkToFileAsync(records, chunkIndex++, ind, chunkFolder, filesQueue);
             records.Clear();
         }
 
         if (records.Count > 0)
         {
-            await WriteChunkToFileAsync(records, chunkIndex, ind, chunkFolder);
+            await WriteChunkToFileAsync(records, chunkIndex, ind, chunkFolder, filesQueue);
         }
 
         Console.WriteLine($"Processor {ind} has count {ProcCount[ind]}");
     }
 
-    private static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex, int ind, string chunkFolder)
+    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue)
+    {
+        while (filesQueue.Count < 2)
+        {
+            if (filesQueue.IsAddingCompleted)
+            {
+                if (filesQueue.Count != 1)
+                {
+                    logger.LogWarning("There are not enough files to merge");
+                    return;
+                }
+
+                logger.LogWarning("Adding last file to merge");
+                var lastFile = filesQueue.Take();
+                filesQueue.Add(lastFile);
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        var file1 = filesQueue.Take();
+        var file2 = filesQueue.Take();
+
+        var newFileName = GenerateNewFileName(file1, mmIndex++);
+
+        await MergeFiles([file1, file2], newFileName);
+        filesQueue.Add(newFileName);
+    }
+
+    private string GenerateNewFileName(string originalFileName, int index)
+    {
+        var lastChunkIndex = originalFileName.LastIndexOf("chunk", StringComparison.Ordinal);
+        var baseName = originalFileName.Substring(0, lastChunkIndex + "chunk".Length);
+        return $"{baseName}_mm{index}.txt";
+    }
+
+    private static async Task WriteChunkToFileAsync(List<Record> records, int chunkIndex, int ind, string chunkFolder,
+        BlockingCollection<string> filesQueue)
     {
         records.Sort((x, y) =>
         {
@@ -126,6 +188,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration) : ParserBas
         {
             await writer.WriteLineAsync(record.ToString());
         }
+        filesQueue.Add(chunkFileName);
     }
 
     private class Record
