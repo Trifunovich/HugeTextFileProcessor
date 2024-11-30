@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using System.Buffers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace TextFile.Parser;
@@ -37,10 +38,9 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         await Task.WhenAll(microMergingTasks);
     }
 
-    public override async Task MergeSortedChunks()
+    public override Task MergeSortedChunks()
     {
-        var sortedFiles = Directory.GetFiles(ChunkFolder, "chunk_*.txt");
-        await MergeFiles(sortedFiles, OutputFile);
+        return Task.CompletedTask;
     }
 
     private async Task MergeFiles(string[] sortedFiles, string outputFile)
@@ -48,27 +48,33 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         try
         {
             var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
-            var queue = new SortedDictionary<string, QueueItem>();
+            var priorityQueue = new PriorityQueue<QueueItem, string>();
 
             foreach (var reader in readers.Where(reader => reader.Peek() >= 0))
             {
                 var line = await reader.ReadLineAsync();
-                if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = reader });
+                if (line != null)
+                {
+                    priorityQueue.Enqueue(new QueueItem { Line = line, Reader = reader }, line);
+                }
             }
 
-            await using (var writer = new StreamWriter(outputFile))
+            await using (var fileStream = new FileStream(outputFile, FileMode.Create, FileAccess.Write))
+            await using (var bufferedWriter = new BufferedStream(fileStream))
+            await using (var writer = new StreamWriter(bufferedWriter))
             {
-                while (queue.Count > 0)
+                while (priorityQueue.Count > 0)
                 {
-                    var (s, value) = queue.First();
-                    await writer.WriteLineAsync(s);
-
-                    queue.Remove(s);
+                    var value = priorityQueue.Dequeue();
+                    await writer.WriteLineAsync(value.Line);
 
                     if (value.Reader.Peek() >= 0)
                     {
                         var line = await value.Reader.ReadLineAsync();
-                        if (line != null) queue.Add(line, new QueueItem { Line = line, Reader = value.Reader });
+                        if (line != null)
+                        {
+                            priorityQueue.Enqueue(new QueueItem { Line = line, Reader = value.Reader }, line);
+                        }
                     }
                     else
                     {
@@ -88,6 +94,14 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         }
     }
 
+
+    private class QueueItem
+    {
+        public string Line { get; set; }
+        public StreamReader Reader { get; set; }
+    }
+
+
     private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<(int, string)> linesQueue)
     {
         if (!File.Exists(inputFile))
@@ -97,19 +111,26 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
 
         using (var reader = new StreamReader(inputFile))
         {
-            var buffer = new char[BulkWriteSize];
-            int bytesRead;
-            while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            var buffer = ArrayPool<char>.Shared.Rent(BulkWriteSize);
+            try
             {
-                var lines = new string(buffer, 0, bytesRead).Split(["\r\n", "\n"], StringSplitOptions.TrimEntries);
-                foreach (var line in lines)
+                int bytesRead;
+                while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
                 {
-                    var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
-                    if (parts.Length == 2 && int.TryParse(parts[0], out var number))
+                    var lines = new string(buffer, 0, bytesRead).Split(new[] { "\r\n", "\n" }, StringSplitOptions.TrimEntries);
+                    Parallel.ForEach(lines, line =>
                     {
-                        linesQueue.Add((number, parts[1]));
-                    }
+                        var parts = line.Split(new[] { ". " }, 2, StringSplitOptions.TrimEntries);
+                        if (parts.Length == 2 && int.TryParse(parts[0], out var number))
+                        {
+                            linesQueue.Add((number, parts[1]));
+                        }
+                    });
                 }
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(buffer);
             }
         }
 
@@ -124,7 +145,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         foreach (var line in linesQueue.GetConsumingEnumerable())
         {
             ProcCount[ind]++;
-            records.Add(new Record {Number = line.Item1, Text = line.Item2});
+            records.Add(new Record { Number = line.Item1, Text = line.Item2 });
 
             if (records.Count < ChunkSize) continue;
             await WriteChunkToFileAsync(records, chunkIndex++, ind, chunkFolder, filesQueue);
@@ -139,11 +160,13 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         logger.LogInformation("Task {Index} has processed {Qty} lines", ind, ProcCount[ind]);
     }
 
+    private static readonly Lock FileLock = new();
+
     private async Task MicroMergeAsync(BlockingCollection<string> filesQueue, int ind)
     {
         while (true)
         {
-            while (filesQueue.Count < 3)
+            while (filesQueue.Count < 2)
             {
                 if (!filesQueue.IsAddingCompleted)
                 {
@@ -151,24 +174,44 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
                 }
                 else
                 {
-                    logger.LogInformation("There final merge will be done later");
+                    logger.LogInformation("Final merge will be done later");
                     logger.LogInformation("Task {Index} has processed {Qty} lines", ind, MmCount[ind]);
                     return;
                 }
             }
 
-            var file1 = filesQueue.Take();
-            var file2 = filesQueue.Take();
+            string file1, file2;
+            lock (FileLock)
+            {
+                if (filesQueue.Count < 2)
+                {
+                    continue;
+                }
+                file1 = filesQueue.Take();
+                file2 = filesQueue.Take();
+            }
 
             var newFileName = GenerateNewFileName(file1, mmIndex++);
 
-            await MergeFiles([file1, file2], newFileName);
-            filesQueue.Add(newFileName);
+            if (file2 != null)
+            {
+                await MergeFiles(new[] { file1, file2 }, newFileName);
+            }
+            else
+            {
+                File.Move(file1, OutputFile);
+                return;
+            }
+
+            if (!filesQueue.IsAddingCompleted)
+            {
+                filesQueue.Add(newFileName);
+            }
+
             logger.LogDebug("File {FilePath} merged out of {Fl1} and {Fl2}", newFileName, file1, file2);
         }
-
-
     }
+
 
     private string GenerateNewFileName(string originalFileName, int index)
     {
@@ -204,11 +247,5 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         {
             return $"{Number}. {Text}";
         }
-    }
-
-    private class QueueItem
-    {
-        public string Line { get; set; }
-        public StreamReader Reader { get; init; }
     }
 }
