@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using BenchmarkDotNet.Running;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,6 +11,9 @@ internal class Program
 {
     private static async Task Main(string[] args)
     {
+#if BENCHMARK
+        var summary = BenchmarkRunner.Run<Benchmarks>();
+#else
         try
         {
             var host = CreateHostBuilder(args).Build();
@@ -32,6 +36,7 @@ internal class Program
         {
             await Log.CloseAndFlushAsync();
         }
+#endif
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>

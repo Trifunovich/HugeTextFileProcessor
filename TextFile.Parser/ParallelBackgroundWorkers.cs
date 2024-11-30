@@ -16,26 +16,24 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
 
     public override async Task CreateExternalChunks()
     {
+
+        if (!File.Exists(InputFile))
+        {
+            throw new FileNotFoundException($"The file {InputFile} does not exist.");
+        }
+
         await base.CreateExternalChunks();
         var linesQueue = new BlockingCollection<(int, string)>(boundedCapacity: BoundedCap);
         var filesQueue = new BlockingCollection<string>(new ConcurrentStack<string>());
-        var processors = Environment.ProcessorCount;
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
-        var processingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
-        {
-            ProcCount[x] = 0;
-            return ProcessLinesAsync(x, linesQueue, ChunkFolder, filesQueue);
-        })).ToArray();
-        var microMergingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
-        {
-            MmCount[x] = 0;
-            return MicroMergeAsync(filesQueue, x);
-        })).ToArray();
+        var processingTask = Task.Run(() => ProcessLinesAsync(0, linesQueue, ChunkFolder, filesQueue));
+        var microMergingTask = Task.Run(() => MicroMergeAsync(filesQueue, 0));
 
-        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
-        filesQueue.CompleteAdding(); // Close the filesQueue after processingTasks are done
+        await readingTask;
+        await processingTask;
+        filesQueue.CompleteAdding(); // Close the filesQueue after processingTask is done
 
-        await Task.WhenAll(microMergingTasks);
+        await microMergingTask;
     }
 
     public override Task MergeSortedChunks()
@@ -102,13 +100,8 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
     }
 
 
-    private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<(int, string)> linesQueue)
+    private static async Task ReadLinesAsync(string inputFile, BlockingCollection<(int, string)> linesQueue)
     {
-        if (!File.Exists(inputFile))
-        {
-            throw new FileNotFoundException($"The file {inputFile} does not exist.");
-        }
-
         using (var reader = new StreamReader(inputFile))
         {
             var buffer = ArrayPool<char>.Shared.Rent(BulkWriteSize);
@@ -118,14 +111,14 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
                 while ((bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length)) > 0)
                 {
                     var lines = new string(buffer, 0, bytesRead).Split(new[] { "\r\n", "\n" }, StringSplitOptions.TrimEntries);
-                    Parallel.ForEach(lines, line =>
+                    foreach (var line in lines)
                     {
                         var parts = line.Split(new[] { ". " }, 2, StringSplitOptions.TrimEntries);
                         if (parts.Length == 2 && int.TryParse(parts[0], out var number))
                         {
                             linesQueue.Add((number, parts[1]));
                         }
-                    });
+                    }
                 }
             }
             finally
