@@ -65,7 +65,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         var microMergingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
         {
             MmCount[x] = 0;
-            return MicroMergeAsync(filesQueue);
+            return MicroMergeAsync(filesQueue, () => linesQueue.IsAddingCompleted);
         })).ToArray();
 
 
@@ -201,7 +201,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
 
     private static readonly Lock FileLock = new();
 
-    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue)
+    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue, Func<bool> closingAvailability)
     {
         while (true)
         {
@@ -281,7 +281,7 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
                 _fileReg.Remove(file1);
                 _fileReg.Remove(file2);
 
-                if (filesQueue.Count == 0 && _fileReg.Count == 0)
+                if (filesQueue.Count == 0 && _fileReg.Count == 0 && closingAvailability.Invoke())
                 {
                     File.Move(newFileName, OutputFile);
                     filesQueue.CompleteAdding();
