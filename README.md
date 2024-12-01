@@ -7,4 +7,4 @@ There are two ps1 scripts for creating benchmark data out of a formatted file, f
 
 In configuration there are values that can be adjusted based on your system capabilities. Tweaking might increase performance or lower memory consumption. 
 
-The project is created to be extremely memory efficiant.
+The project is created to be more memory efficiant than performant.
