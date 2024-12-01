@@ -13,7 +13,7 @@ internal class Program
     {
 #if BENCHMARK
 
-        var summary = BenchmarkRunner.Run<MicroMergeAsyncBench>();
+        var summary = BenchmarkRunner.Run<ReadLinesAsyncBench>();
 #else
         try
         {

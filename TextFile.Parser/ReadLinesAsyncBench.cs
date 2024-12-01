@@ -25,10 +25,67 @@ public class ReadLinesAsyncBench : BenchBase
     {
         var linesQueue = new BlockingCollection<(int, string)>();
 
-        await ReadLinesAsyncSpan(inputFile, linesQueue, N);
+        await ReadLinesInParallelAsync(inputFile, linesQueue);
     }
 
-    
+
+    private async Task ReadLinesInParallelAsync(string inputFile, BlockingCollection<(int, string)> linesQueue)
+    {
+        const int numberOfReaders = 2; // Read from both ends
+        var fileInfo = new FileInfo(inputFile);
+        var fileSize = fileInfo.Length;
+        var tasks = new Task[numberOfReaders];
+
+        // Calculate chunk sizes and positions
+        var chunkSize = fileSize / numberOfReaders;
+        var positions = new (long Start, long End)[numberOfReaders];
+
+        for (int i = 0; i < numberOfReaders; i++)
+        {
+            positions[i].Start = i * chunkSize;
+            positions[i].End = (i == numberOfReaders - 1) ? fileSize : (i + 1) * chunkSize;
+        }
+
+        // Start tasks to read each chunk
+        for (int i = 0; i < numberOfReaders; i++)
+        {
+            var start = positions[i].Start;
+            var end = positions[i].End;
+            tasks[i] = Task.Run(() => ReadFileChunkAsync(inputFile, start, end, linesQueue));
+        }
+
+        await Task.WhenAll(tasks);
+        linesQueue.CompleteAdding();
+    }
+
+    private async Task ReadFileChunkAsync(string inputFile, long startPosition, long endPosition, BlockingCollection<(int, string)> linesQueue)
+    {
+        await using var fs = new FileStream(inputFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new StreamReader(fs);
+
+        // Adjust the start position to the beginning of the next full line
+        fs.Seek(startPosition, SeekOrigin.Begin);
+        if (startPosition != 0)
+        {
+            // Discard partial line if not at the start of the file
+            await reader.ReadLineAsync();
+        }
+
+        while (fs.Position < endPosition && await reader.ReadLineAsync() is { } line)
+        {
+            var parts = line.Split([". "], 2, StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 && int.TryParse(parts[0], out var number))
+            {
+                linesQueue.Add((number, parts[1]));
+            }
+
+            if (fs.Position >= endPosition)
+            {
+                break;
+            }
+        }
+    }
+
     private static async Task ReadLinesAsync(string? inputFile, BlockingCollection<(int, string)> linesQueue, int bulkWriteSize)
     {
         if (!File.Exists(inputFile))

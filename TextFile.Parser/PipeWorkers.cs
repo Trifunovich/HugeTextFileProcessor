@@ -8,7 +8,6 @@ namespace TextFile.Parser;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 public class PipeWorkers(IConfiguration configuration, ILogger<PipeWorkers> logger) : ParserBase(configuration)

@@ -4,19 +4,21 @@ using Microsoft.Extensions.Logging;
 
 namespace TextFile.Parser;
 
+using BenchmarkDotNet.Loggers;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
 public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<ParallelBackgroundWorkers> logger) : ParserBase(configuration)
 {
+    private List<string> _fileReg = new();
     private static int mmIndex = 0;
 
     public override async Task CreateExternalChunks()
     {
-
         if (!File.Exists(InputFile))
         {
             throw new FileNotFoundException($"The file {InputFile} does not exist.");
@@ -25,36 +27,76 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         await base.CreateExternalChunks();
         var linesQueue = new BlockingCollection<(int, string)>(boundedCapacity: BoundedCap);
         var filesQueue = new BlockingCollection<string>(new ConcurrentStack<string>());
+        var processors = Environment.ProcessorCount;
+
         var readingTask = Task.Run(() => ReadLinesAsync(InputFile, linesQueue));
-        var processingTask = Task.Run(() => ProcessLinesAsync(0, linesQueue, ChunkFolder, filesQueue));
-        var microMergingTask = Task.Run(() => MicroMergeAsync(filesQueue, 0));
 
-        await readingTask;
-        await Task.WhenAll(readingTask, processingTask);
-        filesQueue.CompleteAdding(); // Close the filesQueue after processingTask is done
+        // Wait until at least one line is read
+        while (linesQueue.Count == 0)
+        {
+            // Wait until at least one line is read
+            while (linesQueue is { Count: 0, IsAddingCompleted: false })
+            {
+                await Task.Delay(10);
+            }
 
-        await microMergingTask;
+            await Task.Delay(10);
+        }
+
+        var processingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
+        {
+            ProcCount[x] = 0;
+            return ProcessLinesAsync(x, linesQueue, ChunkFolder, filesQueue);
+        })).ToArray();
+
+
+        // Wait until at least one line is read
+        while (filesQueue.Count == 0)
+        {
+            // Wait until at least one line is read
+            while (filesQueue is { Count: 0, IsAddingCompleted: false })
+            {
+                await Task.Delay(10);
+            }
+
+            await Task.Delay(10);
+        }
+
+        var microMergingTasks = Enumerable.Range(0, processors).Select(x => Task.Run(() =>
+        {
+            MmCount[x] = 0;
+            return MicroMergeAsync(filesQueue);
+        })).ToArray();
+
+
+        await Task.WhenAll(new[] { readingTask }.Concat(processingTasks));
+        linesQueue.CompleteAdding();
+
+        await Task.WhenAll(microMergingTasks);
+
     }
 
     public override Task MergeSortedChunks()
     {
         return Task.CompletedTask;
     }
-
-    private async Task MergeFiles(string[] sortedFiles, string outputFile)
+    
+    private async Task<bool> MergeFiles(string[] sortedFiles, string outputFile)
     {
         try
         {
             var readers = sortedFiles.Select(file => new StreamReader(file)).ToList();
             var priorityQueue = new PriorityQueue<QueueItem, string>();
 
+            var arrayPool = ArrayPool<char>.Shared;
+            var buffer = arrayPool.Rent(10000);
+
             foreach (var reader in readers.Where(reader => reader.Peek() >= 0))
             {
-                var line = await reader.ReadLineAsync();
-                if (line != null)
-                {
-                    priorityQueue.Enqueue(new QueueItem { Line = line, Reader = reader }, line);
-                }
+                var readCount = await reader.ReadAsync(buffer, 0, buffer.Length);
+                if (readCount <= 0) continue;
+                var line = new string(buffer, 0, readCount);
+                priorityQueue.Enqueue(new QueueItem { Line = line, Reader = reader }, line);
             }
 
             await using (var fileStream = new FileStream(outputFile, FileMode.Create, FileAccess.Write))
@@ -85,10 +127,13 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
             {
                 File.Delete(file);
             }
+
+            return true;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error while merging files");
+            return false;
         }
     }
 
@@ -98,7 +143,6 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         public string Line { get; set; }
         public StreamReader Reader { get; set; }
     }
-
 
     private static async Task ReadLinesAsync(string inputFile, BlockingCollection<(int, string)> linesQueue)
     {
@@ -130,6 +174,8 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
         linesQueue.CompleteAdding();
     }
 
+    
+
     private async Task ProcessLinesAsync(int ind, BlockingCollection<(int, string)> linesQueue, string chunkFolder,
         BlockingCollection<string> filesQueue)
     {
@@ -155,22 +201,23 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
 
     private static readonly Lock FileLock = new();
 
-    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue, int ind)
+    private async Task MicroMergeAsync(BlockingCollection<string> filesQueue)
     {
         while (true)
         {
+            if (filesQueue.IsAddingCompleted)
+            {
+                return;
+            }
+
             while (filesQueue.Count < 2)
             {
-                if (!filesQueue.IsAddingCompleted)
+                if (filesQueue.IsAddingCompleted)
                 {
-                    await Task.Delay(100);
-                }
-                else
-                {
-                    logger.LogInformation("Final merge will be done later");
-                    logger.LogInformation("Task {Index} has processed {Qty} lines", ind, MmCount[ind]);
                     return;
                 }
+
+                await Task.Delay(100);
             }
 
             string file1, file2;
@@ -182,24 +229,69 @@ public class ParallelBackgroundWorkers(IConfiguration configuration, ILogger<Par
                 }
                 file1 = filesQueue.Take();
                 file2 = filesQueue.Take();
+
+
+                if (!File.Exists(file1) || !File.Exists(file2))
+                {
+                    if (File.Exists(file1))
+                    {
+                        filesQueue.Add(file1);
+                    }
+                    if (File.Exists(file2))
+                    {
+                        filesQueue.Add(file2);
+                    }
+                    continue;
+                }
+
+                _fileReg.Add(file1);
+                _fileReg.Add(file2);
             }
 
             var newFileName = GenerateNewFileName(file1, mmIndex++);
 
-            if (file2 != null)
+            var merged = await MergeFiles([file1, file2], newFileName);
+            
+            if (!merged)
             {
-                await MergeFiles(new[] { file1, file2 }, newFileName);
-            }
-            else
-            {
-                File.Move(file1, OutputFile);
-                return;
+                lock (FileLock)
+                {
+                    if (File.Exists(file1))
+                    {
+                        _fileReg.Remove(file1);
+                        filesQueue.Add(file1);
+                    }
+
+                    if (File.Exists(file2))
+                    {
+                        _fileReg.Remove(file2);
+                        filesQueue.Add(file2);
+                    }
+
+                    if (File.Exists(newFileName))
+                    {
+                        File.Delete(newFileName);
+                    }
+                }
+                continue;
             }
 
-            if (!filesQueue.IsAddingCompleted)
+            lock (FileLock)
             {
-                filesQueue.Add(newFileName);
-            }
+                _fileReg.Remove(file1);
+                _fileReg.Remove(file2);
+
+                if (filesQueue.Count == 0 && _fileReg.Count == 0)
+                {
+                    File.Move(newFileName, OutputFile);
+                    filesQueue.CompleteAdding();
+                    logger.LogInformation("Merging completed => {File}", OutputFile);
+                    break;
+                }
+            }   
+            
+            filesQueue.Add(newFileName);
+            
 
             logger.LogDebug("File {FilePath} merged out of {Fl1} and {Fl2}", newFileName, file1, file2);
         }
